@@ -58,10 +58,13 @@ final class EKWindowProvider: EntryPresenterDelegate {
     
     // Prepare the window and the host view controller
     private func prepare(for attributes: EKAttributes, presentInsideKeyWindow: Bool) -> EKRootViewController? {
-        let entryVC = setupWindowAndRootVC()
+        let hostWindow = entryWindow == nil ? UIApplication.shared.keyWindow : mainRollbackWindow
+        let entryVC = setupWindowAndRootVC(for: attributes, hostWindow: hostWindow)
         guard entryVC.canDisplay(attributes: attributes) || attributes.precedence.isEnqueue else {
             return nil
         }
+        // Reused windows must also expose the incoming policy before becoming visible.
+        entryVC.prepareForPresentation(attributes: attributes, hostOrientation: interfaceOrientation(of: hostWindow))
         entryVC.setStatusBarStyle(for: attributes)
 
         entryWindow.windowLevel = attributes.windowLevel.value
@@ -75,18 +78,25 @@ final class EKWindowProvider: EntryPresenterDelegate {
     }
     
     /** Boilerplate generic setup for entry-window and root-view-controller  */
-    private func setupWindowAndRootVC() -> EKRootViewController {
+    private func setupWindowAndRootVC(for attributes: EKAttributes, hostWindow: UIWindow?) -> EKRootViewController {
         let entryVC: EKRootViewController
         if entryWindow == nil {
             entryVC = EKRootViewController(with: self)
-            entryWindow = EKWindow(with: entryVC)
-            mainRollbackWindow = UIApplication.shared.keyWindow
+            // Assign the orientation before even installing the root controller on UIWindow.
+            entryVC.prepareForPresentation(attributes: attributes, hostOrientation: interfaceOrientation(of: hostWindow))
+            entryWindow = EKWindow(with: entryVC, hostWindow: hostWindow)
+            mainRollbackWindow = hostWindow
         } else {
             entryVC = rootVC!
         }
         return entryVC
     }
     
+    private func interfaceOrientation(of window: UIWindow?) -> UIInterfaceOrientation? {
+        if #available(iOS 13.0, *) { return window?.windowScene?.interfaceOrientation }
+        return UIApplication.shared.statusBarOrientation
+    }
+
     /**
      Privately used to display an entry
      */

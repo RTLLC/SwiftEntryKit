@@ -20,6 +20,11 @@ class EKRootViewController: UIViewController {
     private unowned let delegate: EntryPresenterDelegate
     
     private var lastAttributes: EKAttributes!
+    // Window setup must expose the incoming orientation before UIKit sees a visible root.
+    // Keep this separate from lastAttributes: the latter still owns precedence and exit behavior.
+    private var preparedAttributes: EKAttributes?
+    private var hostOrientation: UIInterfaceOrientation = .portrait
+    private var orientationAttributes: EKAttributes? { preparedAttributes ?? lastAttributes }
     
     private let backgroundView = EKBackgroundView()
 
@@ -51,17 +56,14 @@ class EKRootViewController: UIViewController {
     }
 
     override var shouldAutorotate: Bool {
-        if lastAttributes == nil {
-            return true
-        }
-        return lastAttributes.positionConstraints.rotation.isEnabled
+        return orientationAttributes?.positionConstraints.rotation.isEnabled ?? true
     }
     
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        guard let lastAttributes = lastAttributes else {
+        guard let attributes = orientationAttributes else {
             return super.supportedInterfaceOrientations
         }
-        switch lastAttributes.positionConstraints.rotation.supportedInterfaceOrientations {
+        switch attributes.positionConstraints.rotation.supportedInterfaceOrientations {
         case .standard:
             return super.supportedInterfaceOrientations
         case .all:
@@ -71,6 +73,32 @@ class EKRootViewController: UIViewController {
         }
     }
     
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        let supported = supportedInterfaceOrientations
+        if supported.contains(mask(for: hostOrientation)) { return hostOrientation }
+        for orientation in [UIInterfaceOrientation.portrait, .landscapeLeft, .landscapeRight, .portraitUpsideDown] {
+            if supported.contains(mask(for: orientation)) { return orientation }
+        }
+        return super.preferredInterfaceOrientationForPresentation
+    }
+
+    func prepareForPresentation(attributes: EKAttributes, hostOrientation: UIInterfaceOrientation?) {
+        preparedAttributes = attributes
+        if let orientation = hostOrientation, orientation != .unknown {
+            self.hostOrientation = orientation
+        }
+    }
+
+    private func mask(for orientation: UIInterfaceOrientation) -> UIInterfaceOrientationMask {
+        switch orientation {
+        case .portrait: return .portrait
+        case .portraitUpsideDown: return .portraitUpsideDown
+        case .landscapeLeft: return .landscapeLeft
+        case .landscapeRight: return .landscapeRight
+        default: return []
+        }
+    }
+
     // Previous status bar style
     private let previousStatusBar: EKAttributes.StatusBar
     
@@ -144,6 +172,7 @@ class EKRootViewController: UIViewController {
         removeLastEntry(lastAttributes: previousAttributes, keepWindow: true)
         
         lastAttributes = attributes
+        preparedAttributes = nil
         
         let entryContentView = EKContentView(withEntryDelegate: self)
         view.addSubview(entryContentView)
